@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CRC Pipeline Cleanup</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f4f1; color: #1a1a1a; max-width: 500px; margin: 0 auto; padding: 1rem; min-height: 100vh; }
+
+.progress { text-align: center; margin-bottom: 1rem; }
+.progress-bar { height: 4px; background: #e0ddd8; border-radius: 2px; overflow: hidden; margin-bottom: 0.5rem; }
+.progress-fill { height: 100%; background: #1a1a1a; transition: width 0.3s; }
+.progress-text { font-size: 0.75rem; color: #999; }
+
+.card-container { position: relative; min-height: 300px; }
+
+.card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 1.5rem;
+  border: 1px solid #e8e6e1;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.3s, opacity 0.3s;
+}
+.card.exit-left { transform: translateX(-120%); opacity: 0; }
+.card.exit-right { transform: translateX(120%); opacity: 0; }
+
+.card .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 0.5rem; font-weight: 600; }
+.card .name { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.4rem; }
+.card .desc { font-size: 0.9rem; color: #444; line-height: 1.5; margin-bottom: 0.5rem; }
+.card .people { font-size: 0.8rem; color: #888; }
+.card .detail-list { font-size: 0.8rem; color: #666; margin-top: 0.5rem; max-height: 200px; overflow-y: auto; line-height: 1.6; }
+.card .detail-list span { display: block; padding: 0.15rem 0; border-bottom: 1px solid #f5f3ef; }
+
+.buttons { display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem; }
+.btn {
+  flex: 1;
+  max-width: 160px;
+  padding: 1rem;
+  border-radius: 14px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.btn:active { transform: scale(0.95); }
+.btn-remove { background: #fce4ec; color: #c62828; }
+.btn-keep { background: #e8f5e9; color: #2e7d32; }
+.btn-skip { background: #f5f5f5; color: #888; font-size: 0.85rem; padding: 0.7rem; }
+
+.done { text-align: center; padding: 2rem 1rem; }
+.done h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+.done .results { background: #fff; border-radius: 10px; padding: 1rem; border: 1px solid #e8e6e1; text-align: left; margin-bottom: 1.5rem; font-size: 0.85rem; line-height: 1.6; }
+.done .results .r-keep { color: #2e7d32; }
+.done .results .r-remove { color: #c62828; }
+.done .results .r-skip { color: #888; }
+.done .send-btn { display: inline-block; background: #25D366; color: #fff; padding: 1rem 2rem; border-radius: 25px; font-size: 1rem; font-weight: 600; cursor: pointer; border: none; text-decoration: none; }
+.done .copy-btn { display: inline-block; background: #eee; color: #333; padding: 0.7rem 1.5rem; border-radius: 20px; font-size: 0.85rem; cursor: pointer; border: none; margin-top: 0.8rem; }
+
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="review">
+  <div class="progress">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText"></div>
+  </div>
+  <div class="card-container">
+    <div class="card" id="currentCard"></div>
+  </div>
+  <div class="buttons">
+    <button class="btn btn-remove" onclick="decide('remove')">Remove</button>
+    <button class="btn btn-skip" onclick="decide('skip')">Not sure</button>
+    <button class="btn btn-keep" onclick="decide('keep')">Keep</button>
+  </div>
+</div>
+
+<div id="done" class="hidden done">
+  <h2>All done! Here's what you picked.</h2>
+  <div class="results" id="resultsBox"></div>
+  <a class="send-btn" id="whatsappBtn" href="#" target="_blank">Send to Tiago on WhatsApp</a>
+  <br>
+  <button class="copy-btn" onclick="copyResults()">Or copy to clipboard</button>
+  <p id="copyConfirm" style="margin-top:0.5rem;font-size:0.8rem;color:#2e7d32;" class="hidden">Copied!</p>
+</div>
+
+<script>
+var cards = [
+  {
+    label: "Winery owner -- Calistoga",
+    name: "Betsy Lawer -- Lawer Estates",
+    desc: "Owns a winery and 100+ acres in Knights Valley. Potential custom home client?",
+    people: "Betsy Lawer + Sarah (staff)",
+    id: "lawer-estates"
+  },
+  {
+    label: "Real estate investor -- SF",
+    name: "Kenny Cahill -- Cahill Equities",
+    desc: "Real estate investment firm in San Francisco. Over $1 billion under management.",
+    people: "Kenny Cahill",
+    id: "cahill-equities"
+  },
+  {
+    label: "VC + wine estate",
+    name: "Jeff Hasselman",
+    desc: "Venture capital founder (926 Ventures). Also connected to Grazia Travigne, possibly a Napa wine estate. 3 entries total.",
+    people: "Jeff Hasselman + Denise (Grazia Travigne)",
+    id: "hasselman"
+  },
+  {
+    label: "Real estate developer -- Walnut Creek",
+    name: "Hall Equities Group",
+    desc: "Real estate development company. 50+ years, multifamily and commercial projects.",
+    people: "Mary L.",
+    id: "hall-equities"
+  },
+  {
+    label: "Tech CEO -- San Jose",
+    name: "Raju & Geeta Chekuri",
+    desc: "Raju is CEO of a cybersecurity company in San Jose. High net worth couple.",
+    people: "Raju + Geeta Chekuri",
+    id: "chekuri"
+  },
+  {
+    label: "Luxury windows/doors",
+    name: "Brombal -- Marco Ginella",
+    desc: "Italian luxury steel and bronze windows and doors. Is Brombal a supplier you use, or is Marco a prospect?",
+    people: "Marco Ginella (Technical Director)",
+    id: "brombal"
+  },
+  {
+    label: "Famous Napa winery",
+    name: "Shafer Vineyards -- Amira Khalaf",
+    desc: "One of Napa's top wineries on Silverado Trail. Is Amira a prospect or just a contact?",
+    people: "Amira Khalaf",
+    id: "shafer"
+  },
+  {
+    label: "Sonoma wine producer",
+    name: "Rack & Riddle -- Jose Loria",
+    desc: "Largest custom sparkling wine producer in the US, Healdsburg. Any building project with them?",
+    people: "Jose Loria",
+    id: "rack-riddle"
+  },
+  {
+    label: "Google employee -- Peninsula",
+    name: "Sarah Young",
+    desc: "Works at Google, 650 area code. Homeowner looking to build?",
+    people: "Sarah Young",
+    id: "sarah-young"
+  },
+  {
+    label: "30 individual contacts",
+    name: "Tradespeople & companies",
+    desc: "Glaziers, roofers, excavators, door companies, fire protection, drywall, etc. Most look like subs. Anyone here actually a prospect?",
+    detailList: [
+      "Sheridan Gonsalves (RS Glazing)", "Noelle Ghiorso (Tharaldson Hotels)",
+      "Tyler Mellor (Elevated Projects)", "Becky Hines (Signature Custom Homes, WA)",
+      "Patrick Kelley (Les Kelley Inc)", "Jess Flower (Fortify Fire Pro)",
+      "Daniel Ramos (Old World Door)", "Ryan Knight (MEG4)",
+      "Kevin Gretsinger (Dunrite Excavating)", "Tony Hauglum",
+      "Mike Wells (Drywall Pros)", "Robert Vezer (Vezer's Roofing)",
+      "Charles Flannery (C4 Drafting)", "Rafael Felix (SR Iron)",
+      "Dave Thomas (Tioga Construction)", "Ray Bierman (Mill Creek Eng)",
+      "Benjamin Friedl (Siller Treppen)", "Robby Smith (Key Mechanical)",
+      "Mark (Livermore Mechanical)", "Bear Perilli (Titan Roofer)",
+      "Greg Carter (Golden State WDD)", "Russ Sargorodschi (Tenax Construction)",
+      "Sarah Volner (Napa Electric)", "Leo Pennacchio",
+      "Ciera Teets (AMC Law, LA)", "Ari Lauer (Lauer Law)",
+      "Amy Martin (Gazebo)", "Thomas Aronson (Machinery Max, FL)",
+      "John Evans (Paul Wolff Co, UT)", "Jim Sirokman (5 Acres Living)"
+    ],
+    id: "tradespeople"
+  },
+  {
+    label: "22 personal emails",
+    name: "Names without companies",
+    desc: "Personal gmail/yahoo addresses. Couldn't find them online. Any names you recognize? If not, we'll remove them all.",
+    detailList: [
+      "Jeffery Davis", "Christopher Dumm (Peninsula)",
+      "Todd James (NorCal)", "Emmet Peppers (Connecticut)",
+      "Olivia Vos (Seattle)", "Cindy DelRossario (East Bay)",
+      "Kaurane Slezak (SF)", "Denise Gitsham",
+      "Amanda Bolduc (CalBay)", "Joseph Willcox (Florida)",
+      "Michael Esser (East Bay)", "Dianna Crivello (707)",
+      "Shante Casa (707)", "Mark Colla (San Jose)",
+      "Verne Stuessy", "Olivia Fiala",
+      "Sara Swafford", "A1 Gate Access",
+      "Jacob Schmidt", "Brittney Paige",
+      "Kim (kimtix@)", "Eric Natenstedt"
+    ],
+    id: "personal-emails"
+  }
+];
+
+var currentIndex = 0;
+var decisions = {};
+
+startReview();
+
+function startReview() {
+  showCard(0);
+}
+
+function showCard(i) {
+  currentIndex = i;
+  var fill = document.getElementById('progressFill');
+  var text = document.getElementById('progressText');
+  fill.style.width = ((i / cards.length) * 100) + '%';
+  text.textContent = (i + 1) + ' of ' + cards.length;
+
+  var el = document.getElementById('currentCard');
+  el.className = 'card';
+  var c = cards[i];
+
+  var html = '<div class="label">' + c.label + '</div>';
+  html += '<div class="name">' + c.name + '</div>';
+  html += '<div class="desc">' + c.desc + '</div>';
+  if (c.people) html += '<div class="people">' + c.people + '</div>';
+  if (c.detailList) {
+    html += '<div class="detail-list">';
+    for (var j = 0; j < c.detailList.length; j++) {
+      html += '<span>' + c.detailList[j] + '</span>';
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function decide(choice) {
+  var c = cards[currentIndex];
+  decisions[c.id] = { name: c.name, choice: choice };
+
+  var el = document.getElementById('currentCard');
+  if (choice === 'keep') el.classList.add('exit-right');
+  else el.classList.add('exit-left');
+
+  setTimeout(function() {
+    if (currentIndex + 1 < cards.length) {
+      showCard(currentIndex + 1);
+    } else {
+      showDone();
+    }
+  }, 250);
+}
+
+function buildResultText() {
+  var keepList = [], removeList = [], skipList = [];
+  var keys = Object.keys(decisions);
+  for (var i = 0; i < keys.length; i++) {
+    var d = decisions[keys[i]];
+    if (d.choice === 'keep') keepList.push(d.name);
+    else if (d.choice === 'remove') removeList.push(d.name);
+    else skipList.push(d.name);
+  }
+
+  var msg = "Pipeline cleanup results:\n\n";
+  if (keepList.length) {
+    msg += "KEEP (" + keepList.length + "):\n";
+    for (var i = 0; i < keepList.length; i++) msg += "- " + keepList[i] + "\n";
+    msg += "\n";
+  }
+  if (removeList.length) {
+    msg += "REMOVE (" + removeList.length + "):\n";
+    for (var i = 0; i < removeList.length; i++) msg += "- " + removeList[i] + "\n";
+    msg += "\n";
+  }
+  if (skipList.length) {
+    msg += "NOT SURE (" + skipList.length + "):\n";
+    for (var i = 0; i < skipList.length; i++) msg += "- " + skipList[i] + "\n";
+  }
+  return { keepList: keepList, removeList: removeList, skipList: skipList, msg: msg };
+}
+
+function showDone() {
+  document.getElementById('review').classList.add('hidden');
+  document.getElementById('done').classList.remove('hidden');
+
+  var r = buildResultText();
+
+  var html = '';
+  if (r.keepList.length) {
+    html += '<strong class="r-keep">KEEP (' + r.keepList.length + '):</strong><br>';
+    for (var i = 0; i < r.keepList.length; i++) html += '&bull; ' + r.keepList[i] + '<br>';
+    html += '<br>';
+  }
+  if (r.removeList.length) {
+    html += '<strong class="r-remove">REMOVE (' + r.removeList.length + '):</strong><br>';
+    for (var i = 0; i < r.removeList.length; i++) html += '&bull; ' + r.removeList[i] + '<br>';
+    html += '<br>';
+  }
+  if (r.skipList.length) {
+    html += '<strong class="r-skip">NOT SURE (' + r.skipList.length + '):</strong><br>';
+    for (var i = 0; i < r.skipList.length; i++) html += '&bull; ' + r.skipList[i] + '<br>';
+  }
+  document.getElementById('resultsBox').innerHTML = html;
+
+  var encoded = encodeURIComponent(r.msg);
+  document.getElementById('whatsappBtn').href = 'https://wa.me/?text=' + encoded;
+}
+
+function copyResults() {
+  var r = buildResultText();
+  navigator.clipboard.writeText(r.msg).then(function() {
+    document.getElementById('copyConfirm').classList.remove('hidden');
+    setTimeout(function() {
+      document.getElementById('copyConfirm').classList.add('hidden');
+    }, 2000);
+  });
+}
+</script>
+
+</body>
+</html>
